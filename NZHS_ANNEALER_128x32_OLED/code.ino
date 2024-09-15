@@ -75,17 +75,7 @@ static uint16_t StepsFromHome = 0;
 static bool StepToggle = 0;
 static uint32_t SystemTimeTarget;
 FspTimer myTimer;
-volatile int StepsToGo = 0;
-volatile int StepsFromHome = 0;
-volatile bool StepToggle = false;
-const int g_FeederStepPin = 8; // Update with your actual pin number
-const int STEPPER_STEPS_PER_TURN = 200; // Update with your actual steps per turn
-const int CASE_FEEDER_HOPPER_START = 50; // Update with your actual value
-const int CASE_FEEDER_HOPPER_END = 150; // Update with your actual value
-const int STEPPER_MICROSTEPS = 4; // Update with your actual microsteps
-const int STATE_ANNEALING = 1; // Update with your actual state value
-int g_SystemState = 0; // Update with your actual system state
-unsigned long SystemTimeTarget = 0; // Update with your actual target time
+
 
 //--define state machine states-----------------------------------------------------------
 typedef enum tStateMachineStates
