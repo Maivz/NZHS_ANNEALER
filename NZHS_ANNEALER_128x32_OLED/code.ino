@@ -116,6 +116,11 @@ static const uint8_t g_TimeSetButtonPin     = 16;
 static const uint8_t g_FeederDirPin         = 13;
 static const uint8_t g_FeederStepperEnPin   = 5;
 
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET    -1
+#define SSD1306_I2C_ADDRESS 0x3C
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
  // custom startup image, 128x32px
 const unsigned char anneallogo [] PROGMEM = {
@@ -302,7 +307,7 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
-    // Initialize serial communication
+  // Initialize serial communication
   Serial.begin(9600);
 
   // Initialize the display
@@ -313,6 +318,7 @@ void setup()
   display.display();
   delay(2000);
   display.clearDisplay();
+
   // Initialize Timer1
   noInterrupts();           // Disable interrupts
   TCCR1A = 0;               // Clear Timer1 control registers
