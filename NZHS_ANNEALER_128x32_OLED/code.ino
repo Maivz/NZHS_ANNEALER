@@ -298,16 +298,20 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
-// Set up Timer B1 for PWM on D9 (WO1) and D10 (WO2)
-  TCB1.CTRLA = TCB_CLKSEL_DIV1_gc; // Set clock source to system clock
+  // Set up Timer B1 for PWM on D9 (WO1) and D10 (WO2)
+  TCB1.CTRLA = TCB_CLKSEL_CLKDIV1_gc; // Set clock source to system clock
   TCB1.CTRLB = TCB_CNTMODE_PWM8_gc; // Set mode to 8-bit PWM
   TCB1.CCMP = 0xFF; // Set compare value for PWM
   TCB1.CTRLA |= TCB_ENABLE_bm; // Enable timer
 
-  TCB2.CTRLA = TCB_CLKSEL_DIV1_gc; // Set clock source to system clock
+  // Set up Timer B2 for interrupt
+  TCB2.CTRLA = TCB_CLKSEL_CLKDIV1_gc; // Set clock source to system clock
   TCB2.CTRLB = TCB_CNTMODE_INT_gc; // Set mode to periodic interrupt
   TCB2.CNT = 0; // Initialize counter value to 0
   TCB2.CCMP = 170 / STEPPER_MICROSTEPS; // Set compare match register
+
+  // Enable interrupt
+  TCB2.INTCTRL = TCB_CAPT_bm; // Enable capture/compare interrupt
 
   // Setup IO.
   pinMode(g_StartStopButtonPin, INPUT_PULLUP);
@@ -438,9 +442,9 @@ ISR(TCB2_INT_vect){//timer2 interrupt
       {
           // set compare match register - divide by microsteps to shorten step period
           #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
-            OCR2A = 120 / STEPPER_MICROSTEPS;
+            TCB2.CCMP = 120 / STEPPER_MICROSTEPS;
           #else
-            OCR2A = 170;
+            CCMP = 170;
           #endif
 
       }
@@ -448,15 +452,15 @@ ISR(TCB2_INT_vect){//timer2 interrupt
       {
           // set compare match register - divide by microsteps to shorten step period
           #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
-            OCR2A = 800 / STEPPER_MICROSTEPS;
+            TCB2.CCMP = 800 / STEPPER_MICROSTEPS;
           #else
-            OCR2A = 254;
+            CCMP = 254;
           #endif
       }
       else //speed up again once new case is picked
       {
         // set compare match register - divide by microsteps to shorten step period
-          OCR2A = 170 / STEPPER_MICROSTEPS;
+          TCB2.CCMP = 170 / STEPPER_MICROSTEPS;
       }
 		StepsToGo = StepsToGo - 1;
 	  }
