@@ -76,6 +76,8 @@ static uint16_t StepsFromHome = 0;
 static bool StepToggle = 0;
 static uint32_t SystemTimeTarget;
 
+volatile int timerCount = 0;
+
 //--define state machine states-----------------------------------------------------------
 typedef enum tStateMachineStates
 {
@@ -300,6 +302,17 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
+    // Initialize serial communication
+  Serial.begin(9600);
+
+  // Initialize the display
+  if(!display.begin(SSD1306_I2C_ADDRESS, OLED_RESET)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  display.display();
+  delay(2000);
+  display.clearDisplay();
   // Initialize Timer1
   noInterrupts();           // Disable interrupts
   TCCR1A = 0;               // Clear Timer1 control registers
