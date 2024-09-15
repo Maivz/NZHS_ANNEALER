@@ -14,6 +14,8 @@
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <WiFiNINA.h>
+#include <PubSubClient.h>
 
 //-- macros---------------------------------------------------------------
 //#define DEBUG //defining DEBUG will remove the splash screen and enable serial debug info
@@ -73,6 +75,22 @@ static uint16_t StepsToGo = 0;
 static uint16_t StepsFromHome = 0;
 static bool StepToggle = 0;
 static uint32_t SystemTimeTarget;
+
+// MQTT Configuration
+const char* ssid = "YourWiFiSSID";
+const char* password = "YourWiFiPassword";
+const char* mqtt_server = "YourMQTTBrokerAddress";
+const int mqtt_port = 1883;
+const char* mqtt_client_id = "ArduinoAnnealer";
+const char* mqtt_username = "YourMQTTUsername";
+const char* mqtt_password = "YourMQTTPassword";
+
+// MQTT Topics
+const char* topic_start_stop = "annealer/start_stop";
+const char* topic_anneal_time = "annealer/anneal_time";
+const char* topic_state = "annealer/state";
+const char* topic_temperature = "annealer/temperature";
+
 
 //--define state machine states-----------------------------------------------------------
 typedef enum tStateMachineStates
