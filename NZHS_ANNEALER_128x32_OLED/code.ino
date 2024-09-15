@@ -60,7 +60,7 @@
 // temp sensor pin asignment DS1820
 #define ONE_WIRE_BUS 8
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 200000, 200000);
+//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 200000, 200000);
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
@@ -330,6 +330,9 @@ void setup()
   TIMSK1 |= (1 << OCIE1A);  // Enable Timer1 compare interrupt
   interrupts();             // Enable interrupts
 
+  // Initialize the watchdog timer
+  wdt_enable(WDTO_1S); // Enable the watchdog timer with a 1-second timeout
+
   // Setup IO.
   pinMode(g_StartStopButtonPin, INPUT_PULLUP);
   pinMode(g_ModeButtonPin, INPUT_PULLUP);
@@ -534,7 +537,7 @@ void loop()
   static uint16_t CasesAnnealed = 0;
 
   //boot the watchdog
-  //wdt_reset();
+  wdt_reset();
   WDT.reset();
   //read keys
   LoopStartTime = millis(); // capture time when loop starts
