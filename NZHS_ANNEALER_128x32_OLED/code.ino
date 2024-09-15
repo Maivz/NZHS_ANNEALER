@@ -8,14 +8,13 @@
 //--Includes-------------------------------------------------------------------
 #include <SPI.h>
 #include <Wire.h>
-//#include <avr/wdt.h>
+#include <WDT.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <WDT.h>
-
+#include <FspTimer.h>
 
 //-- macros---------------------------------------------------------------
 //#define DEBUG //defining DEBUG will remove the splash screen and enable serial debug info
@@ -60,7 +59,7 @@
 // temp sensor pin asignment DS1820
 #define ONE_WIRE_BUS 8
 
-//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 200000, 200000);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1, 200000, 200000);
 // Setup a oneWire instance to communicate with any OneWire devices
 OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
@@ -75,8 +74,18 @@ static uint16_t StepsToGo = 0;
 static uint16_t StepsFromHome = 0;
 static bool StepToggle = 0;
 static uint32_t SystemTimeTarget;
-
-volatile int timerCount = 0;
+FspTimer myTimer;
+volatile int StepsToGo = 0;
+volatile int StepsFromHome = 0;
+volatile bool StepToggle = false;
+const int g_FeederStepPin = 8; // Update with your actual pin number
+const int STEPPER_STEPS_PER_TURN = 200; // Update with your actual steps per turn
+const int CASE_FEEDER_HOPPER_START = 50; // Update with your actual value
+const int CASE_FEEDER_HOPPER_END = 150; // Update with your actual value
+const int STEPPER_MICROSTEPS = 4; // Update with your actual microsteps
+const int STATE_ANNEALING = 1; // Update with your actual state value
+int g_SystemState = 0; // Update with your actual system state
+unsigned long SystemTimeTarget = 0; // Update with your actual target time
 
 //--define state machine states-----------------------------------------------------------
 typedef enum tStateMachineStates
@@ -116,11 +125,6 @@ static const uint8_t g_TimeSetButtonPin     = 16;
 static const uint8_t g_FeederDirPin         = 13;
 static const uint8_t g_FeederStepperEnPin   = 5;
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 32
-#define OLED_RESET    -1
-#define SSD1306_I2C_ADDRESS 0x3C
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
  // custom startup image, 128x32px
 const unsigned char anneallogo [] PROGMEM = {
@@ -307,31 +311,9 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
-  // Initialize serial communication
-  Serial.begin(9600);
-
-  // Initialize the display
-  if(!display.begin(SSD1306_I2C_ADDRESS, OLED_RESET)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;);
-  }
-  display.display();
-  delay(2000);
-  display.clearDisplay();
-
-  // Initialize Timer1
-  noInterrupts();           // Disable interrupts
-  TCCR1A = 0;               // Clear Timer1 control registers
-  TCCR1B = 0;
-  TCNT1  = 0;               // Initialize counter value to 0
-  OCR1A = 15624;            // Set compare match register for 1Hz increments
-  TCCR1B |= (1 << WGM12);   // Turn on CTC mode
-  TCCR1B |= (1 << CS12) | (1 << CS10); // Set CS12 and CS10 bits for 1024 prescaler
-  TIMSK1 |= (1 << OCIE1A);  // Enable Timer1 compare interrupt
-  interrupts();             // Enable interrupts
-
-  // Initialize the watchdog timer
-  wdt_enable(WDTO_1S); // Enable the watchdog timer with a 1-second timeout
+  pinMode(g_FeederStepPin, OUTPUT);
+  myTimer.begin(1); // Set timer to trigger every 1ms (adjust as needed)
+  myTimer.attachInterrupt(timerISR); // Attach the ISR
 
   // Setup IO.
   pinMode(g_StartStopButtonPin, INPUT_PULLUP);
@@ -434,7 +416,7 @@ void setup()
   delay(TEMP_CONVERSION_TIME); // let the first temp read happen
   //setup the watchdog timer. it needs a boot every 500ms.
   //wdt_enable(WDTO_500MS);
-  WDT.enable(WDT_PERIOD_1S);
+  WDT.enable(1000); // Enable watchdog timer with 2000ms timeout
   digitalWrite(g_FeederStepperEnPin,HIGH); //disable stepper driver
 }
 /*---------------------------------------------------------------------------*/
@@ -444,66 +426,36 @@ void setup()
   @return       Never.
 *//*-------------------------------------------------------------------------*/
 
-ISR(TIMER1_COMPA_vect){//timer2 interrupt
-    timerCount++;
-  if (timerCount >= 1) { // 1 second has passed
-    timerCount = 0;
-  if(StepsToGo)
-	  {
-	  if (StepToggle)
-	  {
-	    digitalWrite(g_FeederStepPin,HIGH);
-	    StepToggle = 0;
-	    if(StepsFromHome + 1 >= STEPPER_STEPS_PER_TURN)
-		  {
-		  	StepsFromHome = 0;
-		  }
-		  else
-		  {
-		  	StepsFromHome = StepsFromHome + 1;
-		  }
-      if(StepsFromHome < CASE_FEEDER_HOPPER_START) //move feed wheel quickly to pick the next case
-      {
-          // set compare match register - divide by microsteps to shorten step period
-          #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
-            OCR2A = 120 / STEPPER_MICROSTEPS;
-          #else
-            OCR2A = 170;
-          #endif
-
+void timerISR() {
+  if (StepsToGo) {
+    if (StepToggle) {
+      digitalWrite(g_FeederStepPin, HIGH);
+      StepToggle = false;
+      if (StepsFromHome + 1 >= STEPPER_STEPS_PER_TURN) {
+        StepsFromHome = 0;
+      } else {
+        StepsFromHome += 1;
       }
-      else if(StepsFromHome < CASE_FEEDER_HOPPER_END) //slow down the feed wheel while picking the case for more reliable pickups
-      {
-          // set compare match register - divide by microsteps to shorten step period
-          #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
-            OCR2A = 800 / STEPPER_MICROSTEPS;
-          #else
-            OCR2A = 254;
-          #endif
+      if (StepsFromHome < CASE_FEEDER_HOPPER_START) {
+        myTimer.setPeriod(120 / STEPPER_MICROSTEPS); // Adjust period
+      } else if (StepsFromHome < CASE_FEEDER_HOPPER_END) {
+        myTimer.setPeriod(800 / STEPPER_MICROSTEPS); // Adjust period
+      } else {
+        myTimer.setPeriod(170 / STEPPER_MICROSTEPS); // Adjust period
       }
-      else //speed up again once new case is picked
-      {
-        // set compare match register - divide by microsteps to shorten step period
-          OCR2A = 170 / STEPPER_MICROSTEPS;
-      }
-		StepsToGo = StepsToGo - 1;
-	  }
-	  else{
-	    digitalWrite(g_FeederStepPin,LOW);
-	    StepToggle = 1;
-	  }
-  }
-  else
-  {
-  	digitalWrite(g_FeederStepPin,LOW);
-  	StepToggle = 1;
+      StepsToGo -= 1;
+    } else {
+      digitalWrite(g_FeederStepPin, LOW);
+      StepToggle = true;
+    }
+  } else {
+    digitalWrite(g_FeederStepPin, LOW);
+    StepToggle = true;
   }
 
-  if ((g_SystemState == STATE_ANNEALING) && (millis() >= SystemTimeTarget))
-  {
+  if ((g_SystemState == STATE_ANNEALING) && (millis() >= SystemTimeTarget)) {
     turnAnnealerOff();
   }
-
 }
 
 /*---------------------------------------------------------------------------*/
@@ -537,8 +489,8 @@ void loop()
   static uint16_t CasesAnnealed = 0;
 
   //boot the watchdog
-  wdt_reset();
-  WDT.reset();
+  //wdt_reset();
+  WDT.reset(); // Reset watchdog timer
   //read keys
   LoopStartTime = millis(); // capture time when loop starts
   start = readStartButton();
