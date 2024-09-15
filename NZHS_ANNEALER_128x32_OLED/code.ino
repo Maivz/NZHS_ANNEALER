@@ -300,24 +300,16 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
-  //TCCR0B = TCCR0B & B11111000 | B00000101; //PWM on D5 & D6 set to 61.04Hz Timer 0 -- Timer Used for system ms tick
- // TCCR2B = TCCR2B & B11111000 | B00000110; //PWM on D3 & D11 set to 122.55Hz Timer 2  <--- tiner 2
-  TCCR1B = TCCR1B & B11111000 | B00000101; //PWM on D9 & D10 of 30.64 Hz Timer 1   <---- USE IO9 PWM for drop gate Servo
-
-//set timer2 interrupt
-  TCCR2A = 0;// set entire TCCR2A register to 0
-  TCCR2B = 0;// same for TCCR2B
-  TCNT2  = 0;//initialize counter value to 0
-  // set compare match register - divide by microsteps to shorten step period
-  OCR2A = 170 / STEPPER_MICROSTEPS;
-  // turn on CTC mode
-  TCCR2A |= (1 << WGM21);
-  // Set CS20-22 bit for prescaler
-  TCCR2B |= (1 << CS22);
-  TCCR2B |= (1 << CS21);
-
-  // enable timer compare interrupt
-  TIMSK2 |= (1 << OCIE2A);
+  // Initialize Timer1
+  noInterrupts();           // Disable interrupts
+  TCCR1A = 0;               // Clear Timer1 control registers
+  TCCR1B = 0;
+  TCNT1  = 0;               // Initialize counter value to 0
+  OCR1A = 15624;            // Set compare match register for 1Hz increments
+  TCCR1B |= (1 << WGM12);   // Turn on CTC mode
+  TCCR1B |= (1 << CS12) | (1 << CS10); // Set CS12 and CS10 bits for 1024 prescaler
+  TIMSK1 |= (1 << OCIE1A);  // Enable Timer1 compare interrupt
+  interrupts();             // Enable interrupts
 
   // Setup IO.
   pinMode(g_StartStopButtonPin, INPUT_PULLUP);
@@ -430,7 +422,10 @@ void setup()
   @return       Never.
 *//*-------------------------------------------------------------------------*/
 
-ISR(TIMER2_COMPA_vect){//timer2 interrupt
+ISR(TIMER1_COMPA_vect){//timer2 interrupt
+    timerCount++;
+  if (timerCount >= 1) { // 1 second has passed
+    timerCount = 0;
   if(StepsToGo)
 	  {
 	  if (StepToggle)
