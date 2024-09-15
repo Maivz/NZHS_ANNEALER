@@ -8,13 +8,12 @@
 //--Includes-------------------------------------------------------------------
 #include <SPI.h>
 #include <Wire.h>
-#include <WDT.h>
+#include <avr/wdt.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <FspTimer.h>
 
 //-- macros---------------------------------------------------------------
 //#define DEBUG //defining DEBUG will remove the splash screen and enable serial debug info
@@ -74,8 +73,6 @@ static uint16_t StepsToGo = 0;
 static uint16_t StepsFromHome = 0;
 static bool StepToggle = 0;
 static uint32_t SystemTimeTarget;
-FspTimer myTimer;
-
 
 //--define state machine states-----------------------------------------------------------
 typedef enum tStateMachineStates
@@ -301,9 +298,16 @@ static float readTemperature(uint8_t);
 *//*-------------------------------------------------------------------------*/
 void setup()
 {
-  pinMode(g_FeederStepPin, OUTPUT);
-  myTimer.begin(1); // Set timer to trigger every 1ms (adjust as needed)
-  myTimer.attachInterrupt(timerISR); // Attach the ISR
+// Set up Timer B1 for PWM on D9 (WO1) and D10 (WO2)
+  TCB1.CTRLA = TCB_CLKSEL_DIV1_gc; // Set clock source to system clock
+  TCB1.CTRLB = TCB_CNTMODE_PWM8_gc; // Set mode to 8-bit PWM
+  TCB1.CCMP = 0xFF; // Set compare value for PWM
+  TCB1.CTRLA |= TCB_ENABLE_bm; // Enable timer
+
+  TCB2.CTRLA = TCB_CLKSEL_DIV1_gc; // Set clock source to system clock
+  TCB2.CTRLB = TCB_CNTMODE_INT_gc; // Set mode to periodic interrupt
+  TCB2.CNT = 0; // Initialize counter value to 0
+  TCB2.CCMP = 170 / STEPPER_MICROSTEPS; // Set compare match register
 
   // Setup IO.
   pinMode(g_StartStopButtonPin, INPUT_PULLUP);
@@ -405,8 +409,7 @@ void setup()
   sensors.setWaitForConversion(false);
   delay(TEMP_CONVERSION_TIME); // let the first temp read happen
   //setup the watchdog timer. it needs a boot every 500ms.
-  //wdt_enable(WDTO_500MS);
-  WDT.enable(1000); // Enable watchdog timer with 2000ms timeout
+  wdt_enable(WDTO_500MS);
   digitalWrite(g_FeederStepperEnPin,HIGH); //disable stepper driver
 }
 /*---------------------------------------------------------------------------*/
@@ -416,36 +419,63 @@ void setup()
   @return       Never.
 *//*-------------------------------------------------------------------------*/
 
-void timerISR() {
-  if (StepsToGo) {
-    if (StepToggle) {
-      digitalWrite(g_FeederStepPin, HIGH);
-      StepToggle = false;
-      if (StepsFromHome + 1 >= STEPPER_STEPS_PER_TURN) {
-        StepsFromHome = 0;
-      } else {
-        StepsFromHome += 1;
+ISR(TCB2_INT_vect){//timer2 interrupt
+  if(StepsToGo)
+	  {
+	  if (StepToggle)
+	  {
+	    digitalWrite(g_FeederStepPin,HIGH);
+	    StepToggle = 0;
+	    if(StepsFromHome + 1 >= STEPPER_STEPS_PER_TURN)
+		  {
+		  	StepsFromHome = 0;
+		  }
+		  else
+		  {
+		  	StepsFromHome = StepsFromHome + 1;
+		  }
+      if(StepsFromHome < CASE_FEEDER_HOPPER_START) //move feed wheel quickly to pick the next case
+      {
+          // set compare match register - divide by microsteps to shorten step period
+          #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
+            OCR2A = 120 / STEPPER_MICROSTEPS;
+          #else
+            OCR2A = 170;
+          #endif
+
       }
-      if (StepsFromHome < CASE_FEEDER_HOPPER_START) {
-        myTimer.setPeriod(120 / STEPPER_MICROSTEPS); // Adjust period
-      } else if (StepsFromHome < CASE_FEEDER_HOPPER_END) {
-        myTimer.setPeriod(800 / STEPPER_MICROSTEPS); // Adjust period
-      } else {
-        myTimer.setPeriod(170 / STEPPER_MICROSTEPS); // Adjust period
+      else if(StepsFromHome < CASE_FEEDER_HOPPER_END) //slow down the feed wheel while picking the case for more reliable pickups
+      {
+          // set compare match register - divide by microsteps to shorten step period
+          #if STEPPER_MICROSTEPS >= 4 //check we arent going to overflow the 8 bit timer register
+            OCR2A = 800 / STEPPER_MICROSTEPS;
+          #else
+            OCR2A = 254;
+          #endif
       }
-      StepsToGo -= 1;
-    } else {
-      digitalWrite(g_FeederStepPin, LOW);
-      StepToggle = true;
-    }
-  } else {
-    digitalWrite(g_FeederStepPin, LOW);
-    StepToggle = true;
+      else //speed up again once new case is picked
+      {
+        // set compare match register - divide by microsteps to shorten step period
+          OCR2A = 170 / STEPPER_MICROSTEPS;
+      }
+		StepsToGo = StepsToGo - 1;
+	  }
+	  else{
+	    digitalWrite(g_FeederStepPin,LOW);
+	    StepToggle = 1;
+	  }
+  }
+  else
+  {
+  	digitalWrite(g_FeederStepPin,LOW);
+  	StepToggle = 1;
   }
 
-  if ((g_SystemState == STATE_ANNEALING) && (millis() >= SystemTimeTarget)) {
+  if ((g_SystemState == STATE_ANNEALING) && (millis() >= SystemTimeTarget))
+  {
     turnAnnealerOff();
   }
+
 }
 
 /*---------------------------------------------------------------------------*/
@@ -479,8 +509,7 @@ void loop()
   static uint16_t CasesAnnealed = 0;
 
   //boot the watchdog
-  //wdt_reset();
-  WDT.reset(); // Reset watchdog timer
+  wdt_reset();
   //read keys
   LoopStartTime = millis(); // capture time when loop starts
   start = readStartButton();
